@@ -1,0 +1,308 @@
+import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+import { PointerLockControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/PointerLockControls.js';
+
+// Scene setup
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gameCanvas') });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x404040));
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+directionalLight.position.set(1, 1, 1).normalize();
+scene.add(directionalLight);
+
+// Player controls
+const controls = new PointerLockControls(camera, renderer.domElement);
+document.addEventListener('click', () => controls.lock());
+
+// Clock for delta time
+const clock = new THREE.Clock();
+
+const width = 20, height = 20, cellSize = 2;
+const themes = ['brick', 'trees', 'foggy'];
+const theme = themes[Math.floor(Math.random() * themes.length)];
+
+function generateMaze(w, h) {
+    const maze = Array(h).fill().map(() => Array(w).fill(0));
+    function carve(x, y) {
+        const dirs = ['N', 'S', 'E', 'W'].sort(() => Math.random() - 0.5);
+        dirs.forEach(dir => {
+            const nx = x + (dir === 'E' ? 1 : dir === 'W' ? -1 : 0);
+            const ny = y + (dir === 'S' ? 1 : dir === 'N' ? -1 : 0);
+            if (nx >= 0 && nx < w && ny >= 0 && ny < h && maze[ny][nx] === 0) {
+                maze[y][x] |= dir === 'N' ? 1 : dir === 'S' ? 2 : dir === 'E' ? 4 : 8;
+                maze[ny][nx] |= dir === 'N' ? 2 : dir === 'S' ? 1 : dir === 'E' ? 8 : 4;
+                carve(nx, ny);
+            }
+        });
+    }
+    carve(0, 0);
+    return maze;
+}
+
+const maze = generateMaze(width, height);
+
+let wallMaterial;
+if (theme === 'brick') {
+    wallMaterial = new THREE.MeshLambertMaterial({ color: 0x8b4513 }); // Placeholder brick
+} else if (theme === 'trees') {
+    wallMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 }); // Forest green
+} else {
+    wallMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+    scene.fog = new THREE.Fog(0x808080, 0, 10);
+}
+
+const walls = [];
+function createWalls(maze) {
+    const wallGroup = new THREE.Group();
+    maze.forEach((row, y) => {
+        row.forEach((cell, x) => {
+            const wallDefs = [
+                { dir: 'N', bit: 1, pos: [x * cellSize, 1, y * cellSize - cellSize / 2], rot: 0 },
+                { dir: 'S', bit: 2, pos: [x * cellSize, 1, y * cellSize + cellSize / 2], rot: 0 },
+                { dir: 'E', bit: 4, pos: [x * cellSize + cellSize / 2, 1, y * cellSize], rot: Math.PI / 2 },
+                { dir: 'W', bit: 8, pos: [x * cellSize - cellSize / 2, 1, y * cellSize], rot: Math.PI / 2 }
+            ];
+            wallDefs.forEach(w => {
+                if (!(cell & w.bit)) {
+                    const geometry = new THREE.BoxGeometry(cellSize, 2, 0.1);
+                    const mesh = new THREE.Mesh(geometry, wallMaterial);
+                    mesh.position.set(...w.pos);
+                    mesh.rotation.y = w.rot;
+                    wallGroup.add(mesh);
+                    walls.push(mesh);
+                }
+            });
+        });
+    });
+    scene.add(wallGroup);
+}
+
+createWalls(maze);
+
+const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(width * cellSize, height * cellSize),
+    new THREE.MeshLambertMaterial({ color: 0x808080 })
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+const spells = ['Ice Cannon', 'Fireball', 'Thunder Bolt'];
+const player = {
+    position: new THREE.Vector3(cellSize / 2, 1.6, cellSize / 2),
+    velocity: new THREE.Vector3(),
+    speed: 0.1,
+    health: 100,
+    mana: 100,
+    level: 1,
+    xp: 0,
+    spell: spells[Math.floor(Math.random() * 3)],
+    spellTimer: 0
+};
+camera.position.copy(player.position);
+
+const keys = { w: false, a: false, s: false, d: false, space: false };
+document.addEventListener('keydown', e => {
+    if (e.key in keys) keys[e.key] = true;
+    if (e.key === ' ') keys.space = true;
+});
+document.addEventListener('keyup', e => {
+    if (e.key in keys) keys[e.key] = false;
+    if (e.key === ' ') keys.space = false;
+});
+
+const enemyTypes = {
+    skeleton: { health: 50, attack: 10, xp: 20 },
+    rat: { health: 20, attack: 5, xp: 10 },
+    gnome: { health: 30, attack: 8, xp: 15 },
+    snake: { health: 25, attack: 7, xp: 12 },
+    spider: { health: 15, attack: 6, xp: 8 },
+    caterpillar: { health: 10, attack: 3, xp: 5 },
+    bear: { health: 100, attack: 20, xp: 50 }
+};
+
+const enemyMaterials = {
+    skeleton: new THREE.MeshLambertMaterial({ color: 0xaaaaaa }),
+    rat: new THREE.MeshLambertMaterial({ color: 0x555555 }),
+    gnome: new THREE.MeshLambertMaterial({ color: 0x00ff00 }),
+    snake: new THREE.MeshLambertMaterial({ color: 0x00aa00 }),
+    spider: new THREE.MeshLambertMaterial({ color: 0x000000 }),
+    caterpillar: new THREE.MeshLambertMaterial({ color: 0x00ffff }),
+    bear: new THREE.MeshLambertMaterial({ color: 0x8b4513 })
+};
+
+const enemies = [];
+function createEnemy(type, pos, level) {
+    const base = enemyTypes[type];
+    const scale = 1 + level * 0.1;
+    const enemy = {
+        type,
+        position: new THREE.Vector3(...pos),
+        health: base.health * scale,
+        maxHealth: base.health * scale,
+        attack: base.attack * scale,
+        xp: base.xp * scale,
+        attackTimer: 0
+    };
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), enemyMaterials[type]);
+    mesh.position.copy(enemy.position);
+    scene.add(mesh);
+    enemy.mesh = mesh;
+    return enemy;
+}
+
+function placeEnemies(num, maze) {
+    for (let i = 0; i < num; i++) {
+        const x = Math.floor(Math.random() * (width - 2)) + 1;
+        const z = Math.floor(Math.random() * (height - 2)) + 1;
+        const pos = [x * cellSize, 0.5, z * cellSize];
+        const type = Object.keys(enemyTypes)[Math.floor(Math.random() * 7)];
+        enemies.push(createEnemy(type, pos, player.level));
+    }
+}
+placeEnemies(10, maze);
+
+const spellDamage = 20, spellManaCost = 10;
+
+function castSpell() {
+    if (player.mana < spellManaCost || player.spellTimer > 0) return;
+    player.mana -= spellManaCost;
+    player.spellTimer = 1;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const intersects = raycaster.intersectObjects(enemies.map(e => e.mesh));
+    if (intersects.length > 0) {
+        const enemy = enemies.find(e => e.mesh === intersects[0].object);
+        enemy.health -= spellDamage;
+        if (enemy.health <= 0) {
+            player.xp += enemy.xp;
+            scene.remove(enemy.mesh);
+            enemies.splice(enemies.indexOf(enemy), 1);
+            if (player.xp >= player.level * 100) {
+                player.level++;
+                player.xp = 0;
+                player.health = 100 + player.level * 10;
+                player.mana = 100 + player.level * 10;
+            }
+        }
+    }
+}
+
+function updateEnemies(delta) {
+    enemies.forEach(enemy => {
+        const dist = enemy.position.distanceTo(player.position);
+        if (dist < 1) {
+            enemy.attackTimer += delta;
+            if (enemy.attackTimer > 1) {
+                player.health -= enemy.attack;
+                enemy.attackTimer = 0;
+                if (player.health <= 0) console.log('Game Over');
+            }
+        } else if (dist < 10) {
+            const dir = player.position.clone().sub(enemy.position).normalize();
+            enemy.position.add(dir.multiplyScalar(0.05));
+            enemy.mesh.position.copy(enemy.position);
+        }
+    });
+}
+
+const potions = [];
+const potionGeo = new THREE.SphereGeometry(0.2);
+const healthMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+const manaMat = new THREE.MeshLambertMaterial({ color: 0x0000ff });
+
+function createPotion(type, pos) {
+    const potion = { type, position: new THREE.Vector3(...pos) };
+    potion.mesh = new THREE.Mesh(potionGeo, type === 'health' ? healthMat : manaMat);
+    potion.mesh.position.copy(potion.position);
+    scene.add(potion.mesh);
+    potions.push(potion);
+}
+
+function placePotions(num, maze) {
+    for (let i = 0; i < num; i++) {
+        const x = Math.floor(Math.random() * width);
+        const z = Math.floor(Math.random() * height);
+        const pos = [x * cellSize, 0.2, z * cellSize];
+        const type = Math.random() < 0.5 ? 'health' : 'mana';
+        createPotion(type, pos);
+    }
+}
+placePotions(5, maze);
+
+function updatePotions() {
+    potions.forEach((p, i) => {
+        if (player.position.distanceTo(p.position) < 0.5) {
+            if (p.type === 'health') player.health = Math.min(player.health + 20, 100 + player.level * 10);
+            else player.mana = Math.min(player.mana + 20, 100 + player.level * 10);
+            scene.remove(p.mesh);
+            potions.splice(i, 1);
+        }
+    });
+}
+
+const dragonNames = ['Smaug', 'Drogon', 'Fafnir', 'Alduin', 'Toothless'];
+const dragon = createEnemy('dragon', [(width - 1) * cellSize, 1, (height - 1) * cellSize], player.level);
+dragon.health = 500 * (1 + player.level * 0.2);
+dragon.maxHealth = dragon.health;
+dragon.attack = 50 * (1 + player.level * 0.2);
+dragon.xp = 200 * (1 + player.level * 0.2);
+dragon.mesh.geometry = new THREE.BoxGeometry(2, 2, 2);
+dragon.mesh.material = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+dragon.name = dragonNames[Math.floor(Math.random() * 5)];
+enemies.push(dragon);
+
+function updatePlayer(delta) {
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.y = 0;
+    dir.normalize();
+    const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+    player.velocity.set(0, 0, 0);
+    if (keys.w) player.velocity.add(dir.multiplyScalar(player.speed));
+    if (keys.s) player.velocity.add(dir.multiplyScalar(-player.speed));
+    if (keys.a) player.velocity.add(side.multiplyScalar(-player.speed));
+    if (keys.d) player.velocity.add(side.multiplyScalar(player.speed));
+
+    const raycaster = new THREE.Raycaster(player.position, player.velocity.clone().normalize());
+    const intersects = raycaster.intersectObjects(walls);
+    if (!intersects.length || intersects[0].distance > player.velocity.length()) {
+        player.position.add(player.velocity);
+        camera.position.copy(player.position);
+    }
+
+    if (keys.space) castSpell();
+    player.spellTimer = Math.max(player.spellTimer - delta, 0);
+}
+
+const hud = {
+    health: document.getElementById('health'),
+    mana: document.getElementById('mana'),
+    level: document.getElementById('level')
+};
+function updateHUD() {
+    hud.health.textContent = `Health: ${Math.floor(player.health)}`;
+    hud.mana.textContent = `Mana: ${Math.floor(player.mana)}`;
+    hud.level.textContent = `Level: ${player.level}`;
+}
+
+function checkExit() {
+    if (enemies.every(e => e.type !== 'dragon') && player.position.distanceTo(dragon.position) < 2) {
+        console.log('You’ve exited the dungeon!');
+    }
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    updatePlayer(delta);
+    updateEnemies(delta);
+    updatePotions();
+    checkExit();
+    updateHUD();
+    renderer.render(scene, camera);
+}
+animate();

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dungeon Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        <div id="health">Health: 100</div>
+        <div id="mana">Mana: 100</div>
+        <div id="level">Level: 1</div>
+    </div>
+    <!-- Start Screen -->
+    <div id="startScreen" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: url('dungeon-background.jpg'); background-size: cover; display: flex; justify-content: center; align-items: center;">
+        <button id="startButton">Start Game</button>
+    </div>
+    <!-- Game Over Screen -->
+    <div id="gameOver" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 24px; text-align: center;">
+        <p>Game Over</p>
+        <button id="continueButton">Continue</button>
+        <button id="exitButton">Exit</button>
+    </div>
+    <script type="module" src="game.js"></script>
+</body>
+</html>
